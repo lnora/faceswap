@@ -6,6 +6,8 @@ from lib.utils import get_image_paths
 from lib.cli import FullPaths
 from plugins.PluginLoader import PluginLoader
 
+from IPython.display import Image, display
+
 class TrainingProcessor(object):
     arguments = None
 
@@ -136,11 +138,12 @@ class TrainingProcessor(object):
 
                 save_iteration = epoch % self.arguments.save_interval == 0
 
-                trainer.train_one_step(epoch, self.show if (save_iteration or self.save_now) else None)
+                s = trainer.train_one_step(epoch, self.show if (save_iteration or self.save_now) else None)
 
                 if save_iteration:
+                    print(s)
                     model.save_weights()
-
+                    
                 if self.stop:
                     model.save_weights()
                     exit()

@@ -2,6 +2,7 @@ import cv2
 import numpy
 import time
 
+from threading import Lock
 from lib.utils import get_image_paths
 from lib.cli import FullPaths
 from plugins.PluginLoader import PluginLoader
@@ -13,6 +14,7 @@ class TrainingProcessor(object):
 
     def __init__(self, subparser, command, description='default'):
         self.parse_arguments(description, subparser, command)
+        self.lock = Lock()
 
     def process_arguments(self, arguments):
         self.arguments = arguments
@@ -98,8 +100,9 @@ class TrainingProcessor(object):
             print('Using live preview')
             while True:
                 try:
-                    for name, image in self.preview_buffer.items():
-                        cv2.imshow(name, image)
+                    with self.lock:
+                        for name, image in self.preview_buffer.items():
+                            cv2.imshow(name, image)
 
                     key = cv2.waitKey(1000)
                     if key == ord('\n') or key == ord('\r'):
@@ -120,16 +123,14 @@ class TrainingProcessor(object):
         print('Loading data, this may take a while...')
         # this is so that you can enter case insensitive values for trainer
         trainer = self.arguments.trainer
-        trainer = trainer if trainer != "Lowmem" else "LowMem"
+        trainer = "LowMem" if trainer.lower() == "lowmem" else trainer
         model = PluginLoader.get_model(trainer)(self.arguments.model_dir)
         model.load(swapped=False)
 
         images_A = get_image_paths(self.arguments.input_A)
         images_B = get_image_paths(self.arguments.input_B)
-        trainer = PluginLoader.get_trainer(trainer)(model,
-                                                                   images_A,
-                                                                   images_B,
-                                                                   batch_size=self.arguments.batch_size)
+        trainer = PluginLoader.get_trainer(trainer)
+        trainer = trainer(model, images_A, images_B, batch_size=self.arguments.batch_size)
 
         try:
             print('Starting. Press "Enter" to stop training and save model')
@@ -158,13 +159,17 @@ class TrainingProcessor(object):
             except KeyboardInterrupt:
                 print('Saving model weights has been cancelled!')
             exit(0)
-
+        except Exception as e:
+            print(e)
+            exit(1)
+    
     preview_buffer = {}
 
     def show(self, image, name=''):
         try:
             if self.arguments.preview:
-                self.preview_buffer[name] = image
+                with self.lock:
+                    self.preview_buffer[name] = image
             elif self.arguments.write_image:
                 cv2.imwrite('_sample_{}.jpg'.format(name), image)
         except Exception as e:

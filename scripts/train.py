@@ -3,7 +3,7 @@ import numpy
 import time
 
 from threading import Lock
-from lib.utils import get_image_paths
+from lib.utils import get_image_paths, get_folder
 from lib.cli import FullPaths
 from plugins.PluginLoader import PluginLoader
 
@@ -74,13 +74,31 @@ class TrainingProcessor(object):
                             help="Writes the training result to a file even on preview mode.")
         parser.add_argument('-t', '--trainer',
                             type=str,
-                            choices=("Original", "LowMem"),
-                            default="Original",
+                            choices=PluginLoader.get_available_models(),
+                            default=PluginLoader.get_default_model(),
                             help="Select which trainer to use, LowMem for cards < 2gb.")
+        parser.add_argument('-pl', '--use-perceptual-loss',
+                            action="store_true",
+                            dest="perceptual_loss",
+                            default=False,
+                            help="Use perceptual loss while training")
         parser.add_argument('-bs', '--batch-size',
                             type=int,
                             default=64,
                             help="Batch size, as a power of 2 (64, 128, 256, etc)")
+        parser.add_argument('-ag', '--allow-growth',
+                            action="store_true",
+                            dest="allow_growth",
+                            default=False,
+                            help="Sets allow_growth option of Tensorflow to spare memory on some configs")
+        parser.add_argument('-ep', '--epochs',
+                            type=int,
+                            default=1000000,
+                            help="Length of training in epochs.")
+        parser.add_argument('-g', '--gpus',
+                            type=int,
+                            default=1,
+                            help="Number of GPUs to use for training")
         parser = self.add_optional_arguments(parser)
         parser.set_defaults(func=self.process_arguments)
 
@@ -120,22 +138,25 @@ class TrainingProcessor(object):
         thr.join() # waits until thread finishes
 
     def processThread(self):
-        print('Loading data, this may take a while...')
-        # this is so that you can enter case insensitive values for trainer
-        trainer = self.arguments.trainer
-        trainer = "LowMem" if trainer.lower() == "lowmem" else trainer
-        model = PluginLoader.get_model(trainer)(self.arguments.model_dir)
-        model.load(swapped=False)
-
-        images_A = get_image_paths(self.arguments.input_A)
-        images_B = get_image_paths(self.arguments.input_B)
-        trainer = PluginLoader.get_trainer(trainer)
-        trainer = trainer(model, images_A, images_B, batch_size=self.arguments.batch_size)
-
         try:
+            if self.arguments.allow_growth:
+                self.set_tf_allow_growth()
+
+            print('Loading data, this may take a while...')
+            # this is so that you can enter case insensitive values for trainer
+            trainer = self.arguments.trainer
+            trainer = "LowMem" if trainer.lower() == "lowmem" else trainer
+            model = PluginLoader.get_model(trainer)(get_folder(self.arguments.model_dir), self.arguments.gpus)
+            model.load(swapped=False)
+
+            images_A = get_image_paths(self.arguments.input_A)
+            images_B = get_image_paths(self.arguments.input_B)
+            trainer = PluginLoader.get_trainer(trainer)
+            trainer = trainer(model, images_A, images_B, self.arguments.batch_size, self.arguments.perceptual_loss)
+
             print('Starting. Press "Enter" to stop training and save model')
 
-            for epoch in range(0, 1000000):
+            for epoch in range(0, self.arguments.epochs):
 
                 save_iteration = epoch % self.arguments.save_interval == 0
 
@@ -162,7 +183,15 @@ class TrainingProcessor(object):
         except Exception as e:
             print(e)
             exit(1)
-    
+
+    def set_tf_allow_growth(self):
+        import tensorflow as tf
+        from keras.backend.tensorflow_backend import set_session
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        config.gpu_options.visible_device_list="0"
+        set_session(tf.Session(config=config))
+
     preview_buffer = {}
 
     def show(self, image, name=''):

@@ -5,11 +5,15 @@ if  sys.version_info[0] < 3:
 if sys.version_info[0] == 3 and sys.version_info[1] < 2:
     raise Exception("This program requires at least python3.2")
 
-from lib.utils import FullHelpArgumentParser
+from lib.cli import FullHelpArgumentParser
 
 from scripts.extract import ExtractTrainingData
 from scripts.train import TrainingProcessor
 from scripts.convert import ConvertImage
+
+def bad_args(args):
+    parser.print_help()
+    exit(0)
 
 if __name__ == "__main__":
     parser = FullHelpArgumentParser()
@@ -20,5 +24,6 @@ if __name__ == "__main__":
         subparser, "train", "This command trains the model for the two faces A and B.")
     convert = ConvertImage(
         subparser, "convert", "Convert a source image to a new one with the face swapped.")
+    parser.set_defaults(func=bad_args)
     arguments = parser.parse_args()
     arguments.func(arguments)
